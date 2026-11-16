@@ -12,11 +12,12 @@ router = APIRouter(tags=["M2 字段画像"])
 
 @router.get("/api/profile")
 def api_profile(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     if run is None or result is None:
         return {"run_id": None, "counts": {}, "columns": []}
     return {"run_id": run["run_id"], "dataset": run["name"],
             "counts": result["profile"]["counts"],
+            "notation": result["profile"].get("notation", {}),
             "columns": result["profile"]["profile"]}
 
 
@@ -31,8 +32,8 @@ def api_cell(payload: dict | None = None) -> dict:
 @router.get("/profile")
 def page_profile(request: Request, run_id: str | None = None,
                  ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     summary = None if result is None else service.summary(result["profile"], limit=10)
     return render(request, "profile.html", page="profile", page_title="字段画像",
-                  run=run, result=result, profile=result["profile"] if result else None,
+                  run=run, result=result, fallback=fallback, profile=result["profile"] if result else None,
                   summary=summary)

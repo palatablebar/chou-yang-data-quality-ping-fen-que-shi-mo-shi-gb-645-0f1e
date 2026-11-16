@@ -13,13 +13,13 @@ router = APIRouter(tags=["M7 报告导出"])
 @router.get("/")
 def page_report(request: Request, run_id: str | None = None,
                 ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     payload = None
     if result is not None:
         payload = service.report_payload(ctx.store, run["run_id"])
         payload["run"] = {**payload["run"]}
     return render(request, "index.html", page="index", page_title="质量报告",
-                  run=run, result=result, report=payload,
+                  run=run, result=result, fallback=fallback, report=payload,
                   samples=ingest_service.available_samples(ctx.settings))
 
 
@@ -56,6 +56,16 @@ def export_quarantine(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)):
 @router.get("/api/export/flags.csv")
 def export_flags(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)):
     return service.export(ctx.store, "flags.csv", run_id)
+
+
+@router.get("/api/export/notation.csv")
+def export_notation(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)):
+    return service.export(ctx.store, "notation.csv", run_id)
+
+
+@router.get("/api/export/assessable.csv")
+def export_assessable(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)):
+    return service.export(ctx.store, "assessable.csv", run_id)
 
 
 @router.get("/api/export/manifest.json")

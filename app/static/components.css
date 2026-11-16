@@ -339,6 +339,34 @@ span.sev--pass { color: var(--ok); }
   color: var(--ink-muted);
 }
 
+.notice {
+  margin: 0 0 22px;
+  padding: 12px 14px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  background: var(--card);
+  border-left: 3px solid var(--warn);
+}
+.notice b { color: var(--ink); margin-right: 6px; }
+.notice--info { border-left-color: var(--info); }
+
+.scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--paper-2);
+  border-left: 2px solid var(--rule-strong);
+}
+.scope b { color: var(--ink); }
+.scope .scope__warn b { color: var(--warn); }
+
 @media (prefers-reduced-motion: reduce) {
   .bar__fill,
   .column__bar { transition: none; }

@@ -8,6 +8,8 @@ from ... import config
 
 def build(result: dict) -> dict:
     manifest = result["manifest"]
+    profile = result.get("profile", {})
+    notation = profile.get("notation") or {}
     return {
         "run_id": manifest["run_id"],
         "version": manifest["version"],
@@ -28,6 +30,17 @@ def build(result: dict) -> dict:
         "grade": result["score"]["grade"],
         "penalty_sum": result["score"]["penalty_sum"],
         "counters": manifest["counters"],
+        "qualified": result["score"].get("qualified", True),
+        "qualifiers": result["score"].get("qualifiers", []),
+        "assessable": result["score"].get("assessable", {}),
+        "notation": {
+            "policy": notation.get("policy", config.NOTATION_POLICY),
+            "rule": notation.get("rule", ""),
+            "count": notation.get("count", 0),
+            "by_column": notation.get("by_column", []),
+            "by_value": notation.get("by_value", []),
+            "cells": notation.get("cells", []),
+        },
         "accounts": manifest["accounts"],
         "all_balanced": manifest["all_balanced"],
         "stages": manifest["stages"],

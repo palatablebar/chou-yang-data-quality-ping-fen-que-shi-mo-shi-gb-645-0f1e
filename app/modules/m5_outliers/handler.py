@@ -11,7 +11,7 @@ router = APIRouter(tags=["M5 稳健离群"])
 
 @router.get("/api/outliers")
 def api_outliers(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     if run is None or result is None:
         return {"run_id": None, "outliers": None}
     outliers = result["outliers"]
@@ -23,8 +23,8 @@ def api_outliers(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict
 @router.get("/outliers")
 def page_outliers(request: Request, run_id: str | None = None,
                   ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     summary = None if result is None else service.summary(result["outliers"])
     return render(request, "outliers.html", page="outliers", page_title="稳健离群",
-                  run=run, result=result,
+                  run=run, result=result, fallback=fallback,
                   outliers=result["outliers"] if result else None, summary=summary)

@@ -47,6 +47,7 @@ curl -s http://127.0.0.1:18204/api/export/manifest.json
 |---|---|---|
 | `tickets_dirty.csv` | 主演示：哨兵、空白、重复、冲突、越界、分段、截断 | 65.24 分 C 级，隔离 3 行，2 段 |
 | `tickets_clean.csv` | 干净对照 | 100.00 分 A 级 |
+| `tickets_mixed_notation.csv` | 同列混写 `1,204.5` / `1.204,5` 与未定写法 `1,204` / `1.204` | 80.00 分 B 级，2 格写法未定被排除（118/120 可评） |
 | `tickets_gbk.csv` | GB18030 + 中文表头 | 采信成功，标 `K_ALIAS_MAPPED` |
 | `tickets_bom.csv` | BOM + CRLF | 采信成功，标 `K_BOM_STRIPPED` |
 | `tickets_truncated.csv` | 末行截断 | 隔离 1 行，标 `K_TRUNCATED_TAIL` |
@@ -67,8 +68,28 @@ curl -s http://127.0.0.1:18204/api/export/manifest.json
 | 404 | `E_SAMPLE_UNKNOWN` | 样例名不在白名单，用 `/api/datasets` 看可用项 |
 | 409 | `E_STALE_RUN` | 页面版本落后；刷新后重跑，别用旧页面覆盖 |
 | 404 | `E_RUN_NOT_FOUND` | 还没有运行记录，先跑一次评分 |
+| 500 | `E_STORAGE` | 落库失败已整体回滚；旧版本仍完整，检查磁盘/权限后重跑 |
+| 500 | `E_SNAPSHOT` | 所有快照都读不出且无可回退旧版；按 run_id 从备份恢复，别删库 |
 
-## 6 测试
+## 6 写法未定怎么处理
+
+1. 报告页「本批判定范围」先看排除格数与可评覆盖率：`可评 = 单元格 − 写法未定`。
+   覆盖率低于 95% 时页面顶部与导出都会标「仅覆盖可评格」，等级不能当成整批结论。
+2. 同一区块列出每格的原值、两种读法与行号；`/api/export/notation.csv` 是全量逐格证据。
+3. 未定值不进缺失、格式、离群与评分，所以分数只描述可评范围；需要解释这些格时，
+   先向数据提供方确认地区写法，再在源头改写附件并重跑（不要逐格猜）。
+4. 判定规则是 `strict-locale-syntax/v1`（`config.NOTATION_POLICY`）。调整规则必须同时
+   改 `RULE_VERSION`，否则同输入会复用旧运行记录。
+
+## 7 重试与恢复
+
+- 同一附件重复提交：命中幂等键，返回同一条运行记录（`replay: true`），不重复计分。
+- 新版本写入失败：数据集原文与运行记录同一事务回滚，旧版快照与原文都不动；重跑即可。
+- 最新快照损坏：页面顶部显示回退提示，实际展示的是同数据集上一完整版本；坏记录保留。
+  直接重跑同一附件会在原 run_id 上重算并修复快照（`repaired: true`），记录数不变。
+- 需要定位时看 `/api/score/latest` 与 `manifest.json` 的 `fallback` 字段。
+
+## 8 测试
 
 ```bash
 docker compose exec -T app python -m pytest -q
@@ -80,7 +101,7 @@ docker compose exec -T app python -m pytest -q
 python3 -m pytest -q
 ```
 
-## 7 日志与排查
+## 9 日志与排查
 
 - 容器日志：`docker compose logs -f app`。
 - 分数异常先看 `/batches` 的阈值表与五项对账；对账不平说明有单元格被重复计数。

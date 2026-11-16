@@ -13,6 +13,47 @@
     <span class="verdict__digest">sha256 <code>{{ report.dataset.digest[:16] }}</code></span>
   </div>
 </section>
+{% if not report.qualified %}
+<aside class="notice notice--warn" role="alert">
+  <b>分数只覆盖可评格。</b>{% for item in report.qualifiers %}{{ item }}{% endfor %}。等级 {{ report.grade }} 不代表整批数据可用，先确认写法未定格。
+</aside>
+{% endif %}
+
+<section class="block">
+  <h2 class="block__title">本批判定范围<span class="block__hint">{{ report.score }} 分只覆盖可评格</span></h2>
+  <p class="scope">
+    <span>单元格 <b class="num">{{ report.counters.cells_total|intf }}</b></span>
+    <span>可评 <b class="num">{{ report.assessable.cells_assessable|intf }}</b></span>
+    <span>覆盖率 <b class="num">{{ report.assessable.coverage|pct }}</b>{% if not report.assessable.qualified %} <span class="tag">低于下限</span>{% endif %}</span>
+    <span>其中缺失 <b class="num">{{ report.assessable.cells_missing|intf }}</b></span>
+    <span>其中参检离群 <b class="num">{{ report.assessable.tested_cells|intf }}</b></span>
+    <span class="scope__warn">排除·写法未定 <b class="num">{{ report.assessable.cells_notation_unknown|intf }}</b></span>
+    <span>裁定规则 <b class="mono">{{ report.assessable.notation_policy }}</b></span>
+  </p>
+  <p class="aside">{{ report.notation.rule }}。缺失按缺失维计入，不在排除范围；缺失维与格式维的分母都从可评格算起。</p>
+  {% if report.notation.cells %}
+  <table class="ledger">
+    <thead>
+      <tr><th>列</th><th class="num">行号</th><th class="num">原值</th><th>两种读法</th><th>处置</th></tr>
+    </thead>
+    <tbody>
+      {% for cell in report.notation.cells[:8] %}
+      <tr>
+        <td>{{ cell.label }}</td>
+        <td class="num">{{ cell.lineno }}</td>
+        <td class="num mono">{{ cell.raw }}</td>
+        <td>{{ cell.detail }}</td>
+        <td><span class="tag">{{ cell.code }}</span> 未计分</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <p class="links">
+    <a class="link" href="/api/export/assessable.csv">可评范围 CSV</a>
+    <a class="link" href="/api/export/notation.csv">写法未定证据 CSV</a>
+  </p>
+</section>
 
 <section class="block">
   <h2 class="block__title">扣分<span class="block__hint num">{{ report.penalty_sum }} / 100</span></h2>
@@ -100,6 +141,8 @@
     <li class="pair"><span class="pair__key">隔离行</span><span class="pair__value num">{{ report.counters.quarantine|intf }}</span></li>
     <li class="pair"><span class="pair__key">空行</span><span class="pair__value num">{{ report.counters.blank|intf }}</span></li>
     <li class="pair"><span class="pair__key">单元格</span><span class="pair__value num">{{ report.counters.cells_total|intf }}</span></li>
+    <li class="pair"><span class="pair__key">可评格</span><span class="pair__value num">{{ report.counters.cells_assessable|intf }}</span></li>
+    <li class="pair"><span class="pair__key">写法未定格</span><span class="pair__value num">{{ report.counters.cells_notation_unknown|intf }}</span></li>
     <li class="pair"><span class="pair__key">有值格</span><span class="pair__value num">{{ report.counters.cells_value|intf }}</span></li>
     <li class="pair"><span class="pair__key">缺失格</span><span class="pair__value num">{{ report.counters.cells_missing|intf }}</span></li>
     <li class="pair"><span class="pair__key">格式不合格格</span><span class="pair__value num">{{ report.counters.cells_format_bad|intf }}</span></li>
@@ -155,6 +198,8 @@
   <p class="links">
     <a class="link" href="/api/export/report.csv">报告 CSV</a>
     <a class="link" href="/api/export/profile.csv">画像 CSV</a>
+    <a class="link" href="/api/export/assessable.csv">可评范围 CSV</a>
+    <a class="link" href="/api/export/notation.csv">写法未定证据 CSV</a>
     <a class="link" href="/api/export/quarantine.csv">隔离区 CSV</a>
     <a class="link" href="/api/export/manifest.json">运行清单 JSON</a>
   </p>

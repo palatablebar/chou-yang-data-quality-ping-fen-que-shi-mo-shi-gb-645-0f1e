@@ -1,10 +1,11 @@
 # 深度登记 qualiscore（抽样数据质量评分与缺失模式）
 
-- 规模：中型（7 个功能模块 / 6 个应用页 / 97 条测试）
-- 核心规则：**MAD 稳健 z + 退化回退 + 封顶加权评分**。逐格先判三态（缺失 / 格式不合格 / 有值），
-  再按列算中位数与 MAD；`z = 0.6745 × (x − 中位数) / MAD`，MAD=0 时回退 `spread = 0.6745 × IQR / 1.349`，
-  离散度低于「列刻度 × 5」或 MAD 与 IQR 同为 0 判退化；评分 = 100 − 缺失 30 − 重复 25 − 离群 20 − 格式 25，
-  每维按容忍度封顶，比率与扣分全用 Decimal。
+- 规模：中型（7 个功能模块 / 6 个应用页 / 126 条测试）
+- 核心规则：**MAD 稳健 z + 退化回退 + 封顶加权评分**。逐格先判状态（缺失 / 格式不合格 /
+  写法未定 / 有值），再按列算中位数与 MAD；`z = 0.6745 × (x − 中位数) / MAD`，MAD=0 时
+  回退 `spread = 0.6745 × IQR / 1.349`，离散度低于「列刻度 × 5」或 MAD 与 IQR 同为 0 判退化；
+  评分 = 100 − 缺失 30 − 重复 25 − 离群 20 − 格式 25，每维按容忍度封顶，比率与扣分全用 Decimal。
+  数值写法按语法裁定：唯一读法才取值，两种读法都成立且不同 → 写法未定，不进任何分数。
 - 使用者与工作流：客服质量组每月抽 1.2 万行工单导出一份 CSV，原先靠人眼翻缺失、重复和离群；
   现在一次采信得到分数、等级、逐列证据与运行清单，每个数字能追回源文件行号与原因码。
 
@@ -18,9 +19,12 @@
 | M4 重复判定 | 看全行重复组与同键冲突的原值对照 | GET /api/duplicates、页面 /duplicates | `app/modules/m4_duplicates/hashdup.py` `app/modules/m4_duplicates/keydup.py` `app/modules/m4_duplicates/groups.py` `app/modules/m4_duplicates/service.py` | `tests/test_m4_duplicates.py` |
 | M5 稳健离群 | 看逐列中位数、MAD、回退方法与离群格 | GET /api/outliers、页面 /outliers | `app/modules/m5_outliers/robust.py` `app/modules/m5_outliers/zscore.py` `app/modules/m5_outliers/flags.py` `app/modules/m5_outliers/service.py` | `tests/test_m5_outliers.py` |
 | M6 评分与批次 | 跑一次评分、查运行历史、看五项对账、重跑 | POST /api/score、GET /api/batches、GET /api/reconcile、页面 /batches | `app/modules/m6_score/score.py` `app/modules/m6_score/grade.py` `app/modules/m6_score/runstore.py` `app/modules/m6_score/service.py` | `tests/test_m6_score.py` |
-| M7 报告导出 | 看报告页、导出六种 CSV 与运行清单 | GET /、GET /api/export/* | `app/modules/m7_export/report.py` `app/modules/m7_export/csv_out.py` `app/modules/m7_export/manifest_out.py` `app/modules/m7_export/service.py` | `tests/test_m7_export.py` |
+| M7 报告导出 | 看报告页、导出九种 CSV 与运行清单 | GET /、GET /api/export/* | `app/modules/m7_export/report.py` `app/modules/m7_export/csv_out.py` `app/modules/m7_export/manifest_out.py` `app/modules/m7_export/service.py` | `tests/test_m7_export.py` |
 
-端到端：`tests/test_e2e.py`（HTTP 走完采信 → 评分 → 六页 200 → 八种导出；含上传、失败输入、陈旧版本 409）。
+端到端：`tests/test_e2e.py`（HTTP 走完采信 → 评分 → 六页 200 → 十种导出；含上传、失败输入、陈旧版本 409）。
+范围与裁定：`tests/test_notation.py`（写法裁定的每种边界）、`tests/test_scope_http.py`
+（页面/API/导出同源的可评与排除范围、损坏快照回退）。
+可靠性：`tests/test_reliability.py`（重试不重复计分、写入失败整体回滚、快照损坏回退与原地修复、老库迁移）。
 不变量：`tests/test_invariants.py`（行分区、单元格分区、分数闭合、幂等重跑、重复分区、顺序无关、缺失扣分单调）。
 
 ## 陷阱登记
@@ -38,6 +42,8 @@
 | TRAP-19 | 一个单元格同时像缺失、越界、离群 | 按代码顺序覆盖，分项之和大于总分 | 固定优先级缺失 > 格式不合格 > 离群，一格只进一个桶 | `app/modules/m5_outliers/flags.py`、`app/modules/m2_profile/formats.py` | `tests/test_m5_outliers.py::test_priority_missing_over_range_over_outlier` |
 | TRAP-22 | 同一组重复行打乱顺序 | 代表行随顺序变化，导出结果不可复现 | 代表行取最小原始行号，组排序按代表行号 | `app/modules/m4_duplicates/groups.py`、`app/modules/m4_duplicates/hashdup.py` | `tests/test_m4_duplicates.py::test_order_independence_of_groups` |
 | TRAP-26 | 旧页面提交覆盖新结果 | 后提交无条件写入，新版本被旧数据顶掉 | 同名数据集版本自增，`expected_version` 落后即 409 | `app/modules/m6_score/runstore.py` | `tests/test_m6_score.py::test_stale_submission_rejected`、`tests/test_e2e.py::test_stale_version_conflict_over_http` |
+| TRAP-27 | 同一数值列混写 `1,204.5` 与 `1.204,5`，附件无地区说明 | 全按一种写法解释 → 小数放大/缩小，离群与质量分失真；逐个猜测 → 相似工单两种口径 | 逐 token 用语法证明小数位置：唯一读法才取值，`1,204` 这类两读法都成立且不同 → `K_NOTATION_UNKNOWN`，不给值、不进任何分子分母，只留原值与行号 | `app/modules/m2_profile/formats.py`、`app/modules/m2_profile/profile.py`、`app/modules/m6_score/score.py` | `tests/test_notation.py` |
+| TRAP-28 | 同一附件重试、写入中途失败、快照读坏 | 重试重复计分（两条记录分数不一致）；失败留下半截新原文；坏快照当空报告，页面全空且旧记录丢失 | 幂等复用不新增行；数据集与运行记录同事务提交，失败整体回滚；快照带 sha256，读坏回退到同数据集上一完整版本并显式标注 | `app/store.py`、`app/modules/m6_score/runstore.py`、`app/modules/m2_profile/handler.py` | `tests/test_reliability.py`、`tests/test_scope_http.py` |
 
 ## 对账规则
 
@@ -47,16 +53,22 @@
 |---|---|---|---|
 | 数据行账 | 原始记录 | 采纳 + 隔离 + 空行 | 55 = 51 + 3 + 1 |
 | 采纳行账 | 采纳行 | 唯一 + 重复 | 51 = 50 + 1 |
-| 单元格账 | 单元格 | 缺失 + 有值 | 510 = 14 + 496 |
+| 单元格账 | 单元格 | 缺失 + 写法未定 + 有值 | 510 = 14 + 0 + 496 |
 | 有值格账 | 有值 | 合格 + 格式不合格 | 496 = 494 + 2 |
 | 分数账 | 100 | 总分 + 扣分 | 100 = 65.24 + 34.76 |
+
+另有「可评范围」横切：`可评 = 单元格 − 写法未定`，报告页顶部、`/api/score`、
+`assessable.csv` 与 `manifest.json` 同源展示；写成未定的每一格都能按行号翻回源文件
+（`notation.csv`）。
 
 ## 反例与不变量
 
 - 反例（朴素实现会挂）：`tests/test_m1_ingest.py::test_quoted_newline_kept_in_one_record`（`splitlines` 把一条记录切成两条）、
   `tests/test_m1_ingest.py::test_declared_gbk_on_utf8_file_surfaces_as_format_errors`（声明错编码不会崩，但乱码必须被格式维抓出）、
   `tests/test_m5_outliers.py::test_constant_column_is_degenerate`（均值+标准差在常量列上除零）、
-  `tests/test_m6_score.py::test_stale_submission_rejected`（后写覆盖会顶掉新版本）。
+  `tests/test_m6_score.py::test_stale_submission_rejected`（后写覆盖会顶掉新版本）、
+  `tests/test_notation.py::test_ambiguous_grouped_value_is_notation_unknown`（按单一地区解释会把 `1,204` 读成 1.204）、
+  `tests/test_reliability.py::test_corrupt_snapshot_falls_back_to_previous_version`（坏快照当空报告会丢记录）。
 - 不变量：`tests/test_invariants.py::test_rows_partition_holds_for_all_samples`（行分区）、
   `tests/test_invariants.py::test_cells_partition_holds`（单元格分区）、
   `tests/test_invariants.py::test_score_closure_for_all_samples`（分数闭合）、

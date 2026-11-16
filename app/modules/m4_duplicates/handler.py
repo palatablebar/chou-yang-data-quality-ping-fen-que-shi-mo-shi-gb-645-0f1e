@@ -11,7 +11,7 @@ router = APIRouter(tags=["M4 重复判定"])
 
 @router.get("/api/duplicates")
 def api_duplicates(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     if run is None or result is None:
         return {"run_id": None, "duplicates": None}
     duplicates = result["duplicates"]
@@ -28,9 +28,9 @@ def api_duplicates(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> di
 @router.get("/duplicates")
 def page_duplicates(request: Request, run_id: str | None = None,
                     ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     summary = None if result is None else service.summary(result["duplicates"])
     return render(request, "duplicates.html", page="duplicates",
-                  page_title="重复判定", run=run, result=result,
+                  page_title="重复判定", run=run, result=result, fallback=fallback,
                   duplicates=result["duplicates"] if result else None,
                   summary=summary)

@@ -1,7 +1,8 @@
 """M6 编排：一次运行把七个阶段串起来，落库为一条可复算的运行记录。
 
 顺序固定：采信 → 画像 → 缺失 → 重复 → 离群 → 评分 → 对账。
-同 (数据集名, 输入摘要, 规则版本) 命中已有记录时直接复用，不新增行。
+同 (数据集名, 输入摘要, 规则版本) 命中已有记录时直接复用，不新增行；
+命中但快照损坏时按同一条记录重算修复，仍不新增行，也不重复计分。
 """
 from __future__ import annotations
 
@@ -24,21 +25,31 @@ def run(settings: config.Settings, store, *, name: str | None = None,
         expected_version: int | None = None) -> dict:
     started_at = dt.datetime.now(config.UTC).isoformat(timespec="seconds")
     clock = time.perf_counter()
-    stages: list[dict] = []
-    counters: dict = {}
 
     ingest = m1_service.ingest(settings, name=name, data=data,
                                declared=declared, store=store)
     runstore.stale_check(store, ingest["name"], _int_or_none(expected_version))
     existing = store.find_run(ingest["name"], ingest["digest"], settings.rule_version)
     if existing is not None:
-        store.save_dataset(name=ingest["name"], digest=ingest["digest"],
-                          encoding=ingest["encoding"],
-                          declared_encoding=ingest["declared_encoding"],
-                          data=ingest["raw"], stamp=started_at)
-        return runstore.replay(store, existing)
+        store.touch_dataset(_dataset_payload(ingest, started_at))
+        replayed = runstore.replay(store, existing)
+        if replayed is not None:
+            return replayed
+        # 命中同一条运行记录但快照损坏：原地重算并重写快照，不新增记录、不重复计分
+        result = _compute(settings, store, ingest, started_at, clock,
+                          version=int(existing["version"]),
+                          run_id=existing["run_id"], persist=False)
+        runstore.repair(store, existing["run_id"], result)
+        result["repaired"] = True
+        return result
+    return _compute(settings, store, ingest, started_at, clock)
 
-    steps = [("ingest", lambda: None)]
+
+def _compute(settings: config.Settings, store, ingest: dict, started_at: str,
+             clock: float, *, version: int | None = None,
+             run_id: str | None = None, persist: bool = True) -> dict:
+    """跑完下游六段并装配结果；version/run_id 由调用方给定时原地修复旧记录。"""
+    stages: list[dict] = []
     stages.append(_stage("ingest", ingest["counts"]["raw_records"],
                          ingest["counts"]["accepted"],
                          ingest["counts"]["quarantine"], clock))
@@ -65,6 +76,7 @@ def run(settings: config.Settings, store, *, name: str | None = None,
     counts = {
         "cells_total": profile["counts"]["cells_total"],
         "cells_missing": profile["counts"]["cells_missing"],
+        "cells_notation_unknown": profile["counts"]["cells_notation_unknown"],
         "cells_value": profile["counts"]["cells_value"],
         "cells_ok": profile["counts"]["cells_ok"],
         "format_bad": profile["counts"]["cells_format_bad"],
@@ -78,7 +90,8 @@ def run(settings: config.Settings, store, *, name: str | None = None,
 
     reconcile = _reconcile(ingest, profile, missing, duplicates, outliers, scored)
     evidence_rows = (len(ingest["quarantine"]) + len(duplicates["conflicts"])
-                     + len(duplicates["hash_groups"]) + len(outliers["cells"]))
+                     + len(duplicates["hash_groups"]) + len(outliers["cells"])
+                     + profile["counts"]["cells_notation_unknown"])
     stages.append(_stage("export", evidence_rows, evidence_rows, 0, clock))
 
     counters = {
@@ -88,6 +101,9 @@ def run(settings: config.Settings, store, *, name: str | None = None,
         "blank": ingest["counts"]["blank"],
         "cells_total": counts["cells_total"],
         "cells_missing": counts["cells_missing"],
+        "cells_notation_unknown": counts["cells_notation_unknown"],
+        "cells_assessable": profile["counts"]["cells_assessable"],
+        "cells_excluded": profile["counts"]["cells_excluded"],
         "cells_value": counts["cells_value"],
         "cells_ok": counts["cells_ok"],
         "cells_format_bad": counts["format_bad"],
@@ -97,8 +113,8 @@ def run(settings: config.Settings, store, *, name: str | None = None,
         "tested_cells": counts["tested_cells"],
         "segments": ingest["segments"],
     }
-    version = store.latest_version(ingest["name"]) + 1
-    run_id = manifest.new_run_id()
+    version = version if version is not None else store.latest_version(ingest["name"]) + 1
+    run_id = run_id or manifest.new_run_id()
     finished_at = dt.datetime.now(config.UTC).isoformat(timespec="seconds")
     payload = manifest.build(
         run_id=run_id, version=version, name=ingest["name"], digest=ingest["digest"],
@@ -140,6 +156,7 @@ def run(settings: config.Settings, store, *, name: str | None = None,
             "columns": profile["columns"],
             "profile": profile["profile"],
             "counts": profile["counts"],
+            "notation": profile.get("notation", {}),
         },
         "missing": missing,
         "duplicates": duplicates,
@@ -150,12 +167,16 @@ def run(settings: config.Settings, store, *, name: str | None = None,
         "replay": False,
     }
     result = _json_safe(result)
-    store.save_dataset(name=ingest["name"], digest=ingest["digest"],
-                      encoding=ingest["encoding"],
-                      declared_encoding=ingest["declared_encoding"],
-                      data=ingest["raw"], stamp=started_at)
-    runstore.persist(store, result)
+    if persist:
+        runstore.persist(store, result, _dataset_payload(ingest, started_at))
     return result
+
+
+def _dataset_payload(ingest: dict, stamp: str) -> dict:
+    return {"name": ingest["name"], "digest": ingest["digest"],
+            "encoding": ingest["encoding"],
+            "declared_encoding": ingest["declared_encoding"],
+            "data": ingest["raw"], "stamp": stamp}
 
 
 def _stage(key: str, in_count: int, out_count: int, quarantine_count: int,
@@ -181,6 +202,7 @@ def _reconcile(ingest: dict, profile: dict, missing: dict, duplicates: dict,
     counts = ingest["counts"]
     cells_total = profile["counts"]["cells_total"]
     cells_missing = profile["counts"]["cells_missing"]
+    cells_unknown = profile["counts"]["cells_notation_unknown"]
     cells_bad = profile["counts"]["cells_format_bad"]
     cells_value = profile["counts"]["cells_value"]
     cells_ok = profile["counts"]["cells_ok"]
@@ -194,8 +216,8 @@ def _reconcile(ingest: dict, profile: dict, missing: dict, duplicates: dict,
                  duplicates["unique_rows"] + duplicates["duplicate_rows"],
                  "采纳 = 唯一 + 重复"),
         _account("cells", "单元格账", cells_total,
-                 cells_missing + cells_value,
-                 "单元格 = 缺失 + 有值"),
+                 cells_missing + cells_unknown + cells_value,
+                 "单元格 = 缺失 + 写法未定 + 有值"),
         _account("value", "有值格账", cells_value,
                  cells_ok + cells_bad,
                  "有值 = 合格 + 格式不合格"),
@@ -209,6 +231,8 @@ def _reconcile(ingest: dict, profile: dict, missing: dict, duplicates: dict,
         "missing_runs": len(missing["runs"]),
         "key_conflicts": len(duplicates["conflicts"]),
         "degenerate_columns": [item["column"] for item in outliers["degenerate"]],
+        "notation_unknown_cells": cells_unknown,
+        "assessable_cells": cells_total - cells_unknown,
     }
 
 
@@ -239,9 +263,13 @@ def _json_safe(value):
     return value
 
 
-def latest(store, run_id: str | None = None) -> tuple[dict, dict]:
-    run = runstore.require_run(store, run_id)
-    return run, store.load_result(run["run_id"]) or {}
+def latest(store, run_id: str | None = None) -> tuple[dict, dict, dict | None]:
+    """读最新或指定运行；快照损坏时回退到完整旧版并带上 fallback 说明。"""
+    run, result, fallback = runstore.load(store, run_id)
+    if run is None:
+        from ...errors import NotFound
+        raise NotFound("还没有运行记录", code="E_RUN_NOT_FOUND")
+    return run, result or {}, fallback
 
 
 def summary(result: dict) -> dict:

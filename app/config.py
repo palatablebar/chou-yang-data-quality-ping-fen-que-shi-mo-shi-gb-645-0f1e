@@ -20,7 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CHINA_TZ = dt.timezone(dt.timedelta(hours=8), "Asia/Shanghai")
 UTC = dt.timezone.utc
 
-RULE_VERSION = "qualiscore/1.0.0"
+RULE_VERSION = "qualiscore/1.1.0"
+# 数值写法裁定：只在语法能唯一确定小数位置时取值；两种读法都成立且不同 →
+# 记「写法未定」，不进缺失/格式/离群/评分。改策略必须换版本号。
+NOTATION_POLICY = "strict-locale-syntax/v1"
+# 可评覆盖率下限：排除格占比超过它，分数仍照算，但结论必须标「仅覆盖可评格」
+NOTATION_COVERAGE_MIN = Decimal("0.9500")
 SCORE_QUANT = Decimal("0.01")
 RATE_QUANT = Decimal("0.0001")
 HUNDRED = Decimal("100")
@@ -143,6 +148,7 @@ SEVERITY_BANDS: tuple[dict, ...] = (
 SAMPLES: dict[str, str] = {
     "tickets_dirty.csv": "脏样例 · 7 类问题",
     "tickets_clean.csv": "干净样例",
+    "tickets_mixed_notation.csv": "同一列混写 1,204.5 / 1.204,5",
     "tickets_gbk.csv": "GB18030 编码",
     "tickets_bom.csv": "BOM + CRLF",
     "tickets_truncated.csv": "末行截断",

@@ -11,7 +11,7 @@ router = APIRouter(tags=["M3 缺失模式"])
 
 @router.get("/api/missing")
 def api_missing(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     if run is None or result is None:
         return {"run_id": None, "missing": None}
     missing = result["missing"]
@@ -24,8 +24,8 @@ def api_missing(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
 @router.get("/missing")
 def page_missing(request: Request, run_id: str | None = None,
                  ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     summary = None if result is None else service.summary(result["missing"])
     return render(request, "missing.html", page="missing", page_title="缺失模式",
-                  run=run, result=result, missing=result["missing"] if result else None,
+                  run=run, result=result, fallback=fallback, missing=result["missing"] if result else None,
                   summary=summary)

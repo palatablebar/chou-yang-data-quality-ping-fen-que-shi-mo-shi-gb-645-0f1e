@@ -4,12 +4,40 @@
 {% if profile %}
 <p class="statline">
   <span>单元格 <b class="num">{{ profile.counts.cells_total|intf }}</b></span>
+  <span>可评 <b class="num">{{ profile.counts.cells_assessable|intf }}</b></span>
   <span>有值 <b class="num">{{ profile.counts.cells_value|intf }}</b></span>
   <span>合格 <b class="num">{{ profile.counts.cells_ok|intf }}</b></span>
   <span>缺失 <b class="num">{{ profile.counts.cells_missing|intf }}</b></span>
+  <span>写法未定 <b class="num">{{ profile.counts.cells_notation_unknown|intf }}</b></span>
   <span>格式不合格 <b class="num">{{ profile.counts.cells_format_bad|intf }}</b></span>
   <span>列 <b class="num">{{ profile.counts.columns }}</b></span>
 </p>
+
+<p class="scope">
+  <span>口径 <b>有值 = 写法已定且非缺失</b>，是格式率的分母</span>
+  <span class="scope__warn">写法未定 <b>不判合格/不合格</b>，不进任何比率</span>
+  <span>规则 <b class="mono">{{ profile.notation.policy }}</b></span>
+</p>
+
+{% if profile.notation.cells %}
+<section class="block">
+  <h2 class="block__title">写法未定<span class="block__hint">{{ profile.notation.count }} 格 · 未参与评分</span></h2>
+  <table class="ledger">
+    <thead><tr><th>列</th><th class="num">行号</th><th class="num">原值</th><th>两种读法</th></tr></thead>
+    <tbody>
+      {% for cell in profile.notation.cells %}
+      <tr>
+        <td>{{ cell.label }}</td>
+        <td class="num">{{ cell.lineno }}</td>
+        <td class="num mono">{{ cell.raw }}</td>
+        <td>{{ cell.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="links"><a class="link" href="/api/export/notation.csv">导出逐格证据</a></p>
+</section>
+{% endif %}
 
 <section class="block">
   <h2 class="block__title">列</h2>
@@ -18,7 +46,7 @@
       <tr>
         <th>列</th><th>类型</th><th class="num">单元格</th><th class="num">有值</th>
         <th class="num">缺失</th><th class="num">缺失率</th><th class="num">格式不合格</th>
-        <th class="num">基数</th><th class="num">最小</th><th class="num">最大</th>
+        <th class="num">写法未定</th><th class="num">基数</th><th class="num">最小</th><th class="num">最大</th>
       </tr>
     </thead>
     <tbody>
@@ -31,6 +59,7 @@
         <td class="num">{{ column.missing|intf }}</td>
         <td class="num">{{ column.missing_rate|pct }}</td>
         <td class="num">{{ column.format_bad|intf }}</td>
+        <td class="num">{{ column.notation_unknown|intf }}{% if column.notation_mixed %} <span class="tag">混写</span>{% endif %}</td>
         <td class="num">{{ column.distinct|intf }}</td>
         <td class="num">{{ column.min or "—" }}</td>
         <td class="num">{{ column.max or "—" }}</td>

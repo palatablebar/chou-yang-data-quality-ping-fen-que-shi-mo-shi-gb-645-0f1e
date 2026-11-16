@@ -17,22 +17,27 @@ EXPORTS = {
     "quarantine.csv": ("quarantine.csv", "text/csv; charset=utf-8",
                        csv_out.quarantine_csv),
     "flags.csv": ("flags.csv", "text/csv; charset=utf-8", csv_out.flags_csv),
+    "notation.csv": ("notation.csv", "text/csv; charset=utf-8", csv_out.notation_csv),
+    "assessable.csv": ("assessable.csv", "text/csv; charset=utf-8",
+                       csv_out.assessable_csv),
 }
 
 
 def report_payload(store, run_id: str | None = None) -> dict:
-    run, result = _load(store, run_id)
+    run, result, fallback = _load(store, run_id)
     payload = report.build(result)
     payload["run"] = {**runstore.summary(run)}
+    payload["fallback"] = fallback
     return payload
 
 
 def export(store, kind: str, run_id: str | None = None) -> Response:
     if kind not in EXPORTS and kind != "manifest.json":
         raise BadRequest(f"未知导出：{kind}")
-    run, result = _load(store, run_id)
+    run, result, fallback = _load(store, run_id)
     if kind == "manifest.json":
         payload = manifest_out.build(result)
+        payload["fallback"] = fallback
         return Response(content=manifest_out.to_json(payload),
                         media_type="application/json; charset=utf-8",
                         headers=_headers(f"manifest-{run['run_id']}.json"))
@@ -46,9 +51,11 @@ def _headers(filename: str) -> dict:
     return {"Content-Disposition": f'attachment; filename="{filename}"'}
 
 
-def _load(store, run_id: str | None) -> tuple[dict, dict]:
-    run = runstore.require_run(store, run_id)
-    result = store.load_result(run["run_id"])
+def _load(store, run_id: str | None) -> tuple[dict, dict, dict | None]:
+    run, result, fallback = runstore.load(store, run_id)
+    if run is None:
+        from ...errors import NotFound
+        raise NotFound("还没有运行记录", code="E_RUN_NOT_FOUND")
     if result is None:
         raise BadRequest(f"运行快照缺失：{run['run_id']}")
-    return run, result
+    return run, result, fallback

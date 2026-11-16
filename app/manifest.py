@@ -30,8 +30,11 @@ def digest_parts(parts: list[str]) -> str:
 
 
 def rules_digest(rule_version: str) -> str:
-    """阈值与权重参与摘要：改一个容忍度，摘要就变，旧结果不会被当成新结果。"""
-    parts = [rule_version]
+    """阈值与权重参与摘要：改一个容忍度，摘要就变，旧结果不会被当成新结果。
+
+    数值写法裁定规则同样进摘要：改策略必须让同输入不再命中旧运行记录。
+    """
+    parts = [rule_version, f"notation={config.NOTATION_POLICY}"]
     for item in config.WEIGHTS:
         parts.append(f"{item['key']}:{item['cap']}:{item['tolerance']}")
     for item in config.GRADES:

@@ -1,6 +1,9 @@
-"""列级统计：填充率、基数、格式合格率、取值范围、高频取值。
+"""列级统计：填充率、基数、格式合格率、写法未定率、取值范围、高频取值。
 
 比率一律 Decimal 四位（ROUND_HALF_UP），分母为 0 时返回 0，不抛除零。
+口径与评分一致：
+- 有值 = 写法已定且非缺失（含格式不合格），是格式率与基数的分母；
+- 写法未定单独成率，分母是「非缺失格」——它既不算合格，也不算格式错误。
 """
 from __future__ import annotations
 
@@ -29,10 +32,12 @@ def describe(column: config.Column, cells: list[dict]) -> dict:
     total = len(cells)
     missing = sum(1 for cell in cells if cell["state"] == formats.MISSING)
     bad = sum(1 for cell in cells if cell["state"] == formats.FORMAT_BAD)
+    unknown = sum(1 for cell in cells if cell["state"] == formats.NOTATION_UNKNOWN)
     ok = [cell for cell in cells if cell["state"] == formats.VALUE]
     values = [cell["value"] for cell in ok if cell.get("value") is not None]
     distinct = len(set(values))
-    non_missing = total - missing
+    present = total - missing
+    filled = present - unknown
     range_low = range_high = None
     if column.kind in ("decimal", "int"):
         numbers = [Decimal(value) for value in values]
@@ -42,6 +47,7 @@ def describe(column: config.Column, cells: list[dict]) -> dict:
         moments = sorted(values)
         if moments:
             range_low, range_high = moments[0], moments[-1]
+    notations = {cell.get("notation") for cell in ok if cell.get("notation")}
     return {
         "name": column.name,
         "label": column.label,
@@ -49,27 +55,29 @@ def describe(column: config.Column, cells: list[dict]) -> dict:
         "quant": column.quant,
         "range": [column.minimum, column.maximum],
         "total": total,
-        "filled": non_missing,
+        "present": present,
+        "filled": filled,
         "missing": missing,
         "missing_rate": rate(missing, total),
-        "fill_rate": rate(non_missing, total),
+        "fill_rate": rate(filled, total),
         "format_bad": bad,
-        "format_rate": rate(bad, non_missing),
+        "format_rate": rate(bad, filled),
+        "notation_unknown": unknown,
+        "notation_unknown_rate": rate(unknown, present),
+        "notation_mixed": len(notations) > 1,
         "distinct": distinct,
-        "cardinality": rate(distinct, non_missing),
+        "cardinality": rate(distinct, filled),
         "min": range_low,
         "max": range_high,
         "top": top_values(values) if column.kind in ("text", "enum") else [],
-        "status": _status(missing, bad, total),
+        "status": _status(missing, bad, unknown, total),
     }
 
 
-def _status(missing: int, bad: int, total: int) -> str:
+def _status(missing: int, bad: int, unknown: int, total: int) -> str:
     """列状态：全空列单独标出，避免被当成「填充率低」。"""
     if total and missing == total:
         return "empty_column"
-    if total and missing == 0 and bad == 0:
+    if total and missing == 0 and bad == 0 and unknown == 0:
         return "complete"
-    if missing or bad:
-        return "partial"
-    return "complete"
+    return "partial"

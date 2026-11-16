@@ -33,6 +33,11 @@
   </header>
 
   <main id="main" class="sheet">
+    {% if fallback %}
+    <aside class="notice notice--warn" role="alert">
+      <b>已回退到完整旧版。</b>{{ fallback.note }}。损坏记录 {{ fallback.corrupt_run_id }} 保留未删；本页数字来自 {{ fallback.fallback_run_id }}（v{{ fallback.fallback_version }}）。
+    </aside>
+    {% endif %}
     {% block body %}{% endblock %}
   </main>
 

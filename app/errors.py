@@ -40,6 +40,13 @@ class UnprocessableInput(QualiscoreError):
     code = "E_INPUT"
 
 
+class StorageFailure(QualiscoreError):
+    """落库失败：新版本整体回滚，旧版数据集与完整快照保持不动。"""
+
+    status_code = 500
+    code = "E_STORAGE"
+
+
 def install_handlers(app) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse
@@ -47,3 +54,12 @@ def install_handlers(app) -> None:
     @app.exception_handler(QualiscoreError)
     async def _qualiscore(request: Request, exc: QualiscoreError):  # noqa: ANN001
         return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+    from .store import SnapshotError
+
+    @app.exception_handler(SnapshotError)
+    async def _snapshot(request: Request, exc: SnapshotError):  # noqa: ANN001
+        # 快照全坏且没有可回退的完整旧版：明确 500，不返回半截报告
+        return JSONResponse(status_code=500, content={
+            "error": "E_SNAPSHOT", "message": str(exc),
+            "detail": {"run_id": exc.run_id, "reason": exc.reason}})

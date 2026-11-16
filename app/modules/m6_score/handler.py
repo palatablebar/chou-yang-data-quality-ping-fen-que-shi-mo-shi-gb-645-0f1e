@@ -20,8 +20,13 @@ def _public(result: dict) -> dict:
         "dims": result["score"]["dims"],
         "bands": result["score"]["bands"],
         "closed": result["score"]["closed"],
+        "qualified": result["score"].get("qualified", True),
+        "qualifiers": result["score"].get("qualifiers", []),
         "replay": result.get("replay", False),
+        "repaired": result.get("repaired", False),
         "counts": result["manifest"]["counters"],
+        "assessable": result["score"].get("assessable", {}),
+        "notation": result["profile"].get("notation", {}),
         "reconcile": result["reconcile"],
         "dataset": result["dataset"]["name"],
     }
@@ -52,15 +57,15 @@ async def api_score_upload(file: UploadFile = File(...),
 
 @router.get("/api/score/latest")
 def api_latest(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = service.latest(ctx.store, run_id)
+    run, result, fallback = service.latest(ctx.store, run_id)
     return {"run": runstore.summary(run), "score": result.get("score"),
-            "reconcile": result.get("reconcile")}
+            "reconcile": result.get("reconcile"), "fallback": fallback}
 
 
 @router.get("/api/runs/{run_id}")
 def api_run(run_id: str, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run = runstore.require_run(ctx.store, run_id)
-    return {"run": runstore.summary(run), "result": ctx.store.load_result(run["run_id"])}
+    run, result, fallback = service.latest(ctx.store, run_id)
+    return {"run": runstore.summary(run), "result": result, "fallback": fallback}
 
 
 @router.get("/api/batches")
@@ -71,18 +76,21 @@ def api_batches(limit: int = 20, ctx: Ctx = Depends(get_ctx)) -> dict:
 
 @router.get("/api/reconcile")
 def api_reconcile(run_id: str | None = None, ctx: Ctx = Depends(get_ctx)) -> dict:
-    run, result = service.latest(ctx.store, run_id)
+    run, result, fallback = service.latest(ctx.store, run_id)
     reconcile = result.get("reconcile", {"accounts": [], "all_balanced": None})
     return {"run_id": run["run_id"], "accounts": reconcile["accounts"],
-            "all_balanced": reconcile.get("all_balanced")}
+            "all_balanced": reconcile.get("all_balanced"),
+            "notation_unknown_cells": reconcile.get("notation_unknown_cells", 0),
+            "assessable_cells": reconcile.get("assessable_cells"),
+            "fallback": fallback}
 
 
 @router.get("/batches")
 def page_batches(request: Request, run_id: str | None = None,
                  ctx: Ctx = Depends(get_ctx)):
-    run, result = ctx.current_result(run_id)
+    run, result, fallback = ctx.current_result(run_id)
     runs = ctx.store.list_runs(limit=12)
     return render(request, "batches.html", page="batches", page_title="评分批次",
-                  run=run, result=result, runs=runs,
+                  run=run, result=result, fallback=fallback, runs=runs,
                   reconcile=result["reconcile"] if result else None,
                   thresholds=runstore.thresholds())

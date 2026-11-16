@@ -37,11 +37,15 @@ class Ctx:
             return self.store.get_run(run_id)
         return self.store.latest_run()
 
-    def current_result(self, run_id: str | None = None) -> tuple[dict | None, dict | None]:
-        run = self.current_run(run_id)
-        if run is None:
-            return None, None
-        return run, self.store.load_result(run["run_id"])
+    def current_result(self, run_id: str | None = None
+                       ) -> tuple[dict | None, dict | None, dict | None]:
+        """读当前运行快照；最新快照损坏时回退到完整旧版。
+
+        第三个返回值是 fallback 说明（哪条读坏、回退到哪条），页面据此显式
+        标出「展示的是旧版」，绝不把损坏当成空报告。
+        """
+        from .modules.m6_score import runstore
+        return runstore.load(self.store, run_id)
 
 
 def get_ctx(request: Request) -> Ctx:
@@ -79,14 +83,16 @@ def render(request: Request, name: str, **context):
     ctx: Ctx = request.app.state.ctx
     run = context.pop("run", None)
     result = context.pop("result", None)
+    fallback = context.pop("fallback", None)
     if run is None and result is None:
-        run, result = ctx.current_result(context.get("run_id"))
+        run, result, fallback = ctx.current_result(context.get("run_id"))
     base = {
         "request": request,
         "ctx": ctx,
         "settings": ctx.settings,
         "run": run,
         "result": result,
+        "fallback": fallback,
         "page": context.pop("page", ""),
         "page_title": context.pop("page_title", ""),
     }

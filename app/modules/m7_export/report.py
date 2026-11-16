@@ -29,6 +29,7 @@ def build(result: dict) -> dict:
                                             -Decimal(item["format_rate"]),
                                             item["name"]))
     counters = result["manifest"]["counters"]
+    notation = result.get("profile", {}).get("notation") or {}
     return {
         "run": result["run"],
         "dataset": result["dataset"],
@@ -37,12 +38,16 @@ def build(result: dict) -> dict:
         "grade_label": score["grade_label"],
         "penalty_sum": score["penalty_sum"],
         "closed": score["closed"],
+        "qualified": score.get("qualified", True),
+        "qualifiers": score.get("qualifiers", []),
         "formula": score["formula"],
         "weights": score["weights"],
         "dims": dims,
         "bars": bars,
         "bands": score["bands"],
         "counters": counters,
+        "assessable": score.get("assessable", {}),
+        "notation": notation,
         "columns": profile_rows[:7],
         "empty_columns": result["profile"]["counts"]["empty_columns"],
         "accounts": result["reconcile"]["accounts"],

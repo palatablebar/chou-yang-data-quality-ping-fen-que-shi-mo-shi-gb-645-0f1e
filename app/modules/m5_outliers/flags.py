@@ -1,8 +1,8 @@
-"""离群标记与单元格分区：缺失 / 格式不合格 / 有值 三分，离群是有值的子集。
+"""离群标记与单元格分区：缺失 / 写法未定 / 格式不合格 / 有值 四分，离群是有值的子集。
 
-优先级固定：缺失 > 格式不合格（含越界）> 离群。一个单元格只进一个桶，
-所以「缺失 + 格式不合格 + 有值 = 单元格总数」与「离群 ≤ 有值」两条恒等式
-永远成立。
+优先级固定：缺失 > 格式不合格 > 写法未定 > 离群。一个单元格只进一个桶，
+所以「缺失 + 写法未定 + 有值 = 单元格总数」与「离群 ≤ 有值」两条恒等式
+永远成立。写法未定的原值不参与中位数、MAD 与 z，只计入 excluded 供报告说明。
 """
 from __future__ import annotations
 
@@ -17,14 +17,19 @@ def mark(profile: dict) -> dict:
     cells = []
     tested_total = 0
     outliers_total = 0
+    excluded_total = 0
     degenerate = []
     for column in profile["columns"]:
         name = column["name"]
         if not column["numeric"]:
             continue
         entries = []
+        excluded = 0
         for row in profile["rows"]:
             cell = row["cells"][name]
+            if cell["state"] == "notation_unknown":
+                excluded += 1
+                continue
             if cell["state"] != "value" or cell.get("value") in (None, ""):
                 continue
             entries.append((row["lineno"], Decimal(cell["value"]), cell["raw"]))
@@ -44,6 +49,7 @@ def mark(profile: dict) -> dict:
             column_outliers.sort(key=lambda item: (item["lineno"]))
             outliers_total += len(column_outliers)
             cells.extend(column_outliers)
+        excluded_total += excluded
         if verdict["degenerate"]:
             degenerate.append({"column": name, "label": column["label"],
                                "code": "K_DEGENERATE",
@@ -53,6 +59,7 @@ def mark(profile: dict) -> dict:
             "label": column["label"],
             "tested": len(entries) if verdict["tested"] else 0,
             "values": len(entries),
+            "notation_unknown": excluded,
             "outliers": len(column_outliers),
             "median": _text(verdict["median"]),
             "mad": _text(verdict["mad"]),
@@ -71,6 +78,7 @@ def mark(profile: dict) -> dict:
         "numeric_columns": len(columns),
         "tested_cells": tested_total,
         "outlier_cells": outliers_total,
+        "notation_excluded_cells": excluded_total,
         "degenerate_columns": len(degenerate),
         "outlier_rate": _rate(outliers_total, tested_total),
     }
